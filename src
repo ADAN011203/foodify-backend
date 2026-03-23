@@ -1,0 +1,68 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
+
+import { envValidationSchema } from './config/env.validation';
+import { databaseConfig } from './config/database.config';
+
+import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
+import { RolesGuard } from './shared/guards/roles.guard';
+import { PlanGuard } from './shared/guards/plan.guard';
+import { TransformResponseInterceptor } from './shared/interceptors/transform-response.interceptor';
+import { AllExceptionsFilter } from './shared/filters/http-exception.filter';
+
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { RestaurantsModule } from './modules/restaurants/restaurants.module';
+import { TablesModule } from './modules/tables/tables.module';
+import { MenusModule } from './modules/menus/menus.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { DishesModule } from './modules/dishes/dishes.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { KitchenModule } from './modules/kitchen/kitchen.module';
+import { SaasModule } from './modules/saas/saas.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PublicMenuModule } from './modules/public-menu/public-menu.module';
+import { SaasSubscription } from './modules/saas/entities/saas-subscription.entity';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, validationSchema: envValidationSchema }),
+    TypeOrmModule.forRootAsync({ useFactory: databaseConfig }),
+    TypeOrmModule.forFeature([SaasSubscription]),
+    ThrottlerModule.forRoot([{
+      ttl: parseInt(process.env.THROTTLE_TTL || '60') * 1000,
+      limit: parseInt(process.env.THROTTLE_LIMIT || '100'),
+    }]),
+    EventEmitterModule.forRoot({ wildcard: false, delimiter: '.', global: true }),
+    AuthModule,
+    UsersModule,
+    RestaurantsModule,
+    TablesModule,
+    MenusModule,
+    CategoriesModule,
+    DishesModule,
+    InventoryModule,
+    OrdersModule,
+    KitchenModule,
+    SaasModule,
+    PaymentsModule,
+    ReportsModule,
+    NotificationsModule,
+    PublicMenuModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PlanGuard },
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+  ],
+})
+export class AppModule {}
