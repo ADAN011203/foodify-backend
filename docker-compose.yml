@@ -1,0 +1,75 @@
+services:
+  # ── MySQL 8 ──────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: foodify_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: foodify_db
+      MYSQL_USER: foodify
+      MYSQL_PASSWORD: foodify_pass
+    ports:
+      - '3307:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --character-set-server=utf8mb4
+             --collation-server=utf8mb4_unicode_ci
+             --log-bin-trust-function-creators=1
+    networks:
+      - foodify_net
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      timeout: 20s
+      retries: 10
+
+  # ── Redis 7 ──────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: foodify_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - foodify_net
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      timeout: 5s
+      retries: 5
+
+  # ── NestJS App ───────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: foodify_app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+    networks:
+      - foodify_net
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  foodify_net:
+    driver: bridge

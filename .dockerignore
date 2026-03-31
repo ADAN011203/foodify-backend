@@ -1,0 +1,15 @@
+# RUTA: .dockerignore
+node_modules
+dist
+.gitignore
+*.md
+.env.example
+docker-compose*.yml
+coverage
+.nyc_output
+*.log
+.DS_Store
+Thumbs.db
+node_modules
+dist
+.git
