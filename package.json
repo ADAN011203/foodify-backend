@@ -14,7 +14,6 @@
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/config/database.config.ts",
     "seed": "ts-node src/database/seeds/run-seeds.ts",
     "seed:android": "ts-node src/database/seeds/create-android-users.seed.ts",
-    "seed:staff": "ts-node src/database/seeds/create-staff-users.seed.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

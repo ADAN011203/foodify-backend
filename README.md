@@ -80,31 +80,13 @@ El archivo `Foodify_v3.2_Postman_Collection.json` ya está incluido en la raíz 
 
 ## 🔑 Credenciales de prueba
 
-### Administradores
-
 | Rol | Email | Contraseña |
 |-----|-------|-----------|
 | saas_admin (CODEX) | admin@codex.foodify.mx | Codex2026! |
 | restaurant_admin (demo) | admin@demo.foodify.mx | Demo2026! |
-
-### 👨‍🍳 Perfiles de Staff (App Android — Plan Premium)
-
-> **Nota:** Estos perfiles se crean ejecutando `npm run seed:staff` (requiere que el restaurante demo ya exista).
-
-| Perfil | Email | Contraseña | Rol interno |
-|--------|-------|------------|-------------|
-| 🛎️ Mesero | mesero@demo.foodify.mx | Staff2026! | `waiter` |
-| 💰 Cajero | cajero@demo.foodify.mx | Staff2026! | `cashier` |
-| 👨‍🍳 Cocina (Chef) | cocina@demo.foodify.mx | Staff2026! | `chef` |
-
-#### Cómo crearlos
-```bash
-# 1. Asegúrate de tener el restaurante demo (si no lo tienes ya)
-npm run seed
-
-# 2. Crea los 3 perfiles de staff
-npm run seed:staff
-```
+| waiter (mesero) | mesero@demo.foodify.mx | Staff2026! |
+| cashier (cajero) | cajero@demo.foodify.mx | Staff2026! |
+| chef (cocina) | cocina@demo.foodify.mx | Staff2026! |
 
 ---
 
