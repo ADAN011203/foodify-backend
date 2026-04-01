@@ -41,10 +41,18 @@ export class DishesService {
   }
 
   async update(id: number, restaurantId: number, dto: UpdateDishDto) {
+    const { cost_est, prep_time_min, category_id, sort_order, is_active, ...rest } = dto as any;
+    const setData: any = { ...rest };
+    if (cost_est     !== undefined) setData.costEst     = cost_est;
+    if (prep_time_min !== undefined) setData.prepTimeMin = prep_time_min;
+    if (category_id  !== undefined) setData.category     = { id: category_id };
+    if (sort_order   !== undefined) setData.sortOrder    = sort_order;
+    if (is_active    !== undefined) setData.isAvailable  = is_active;
+
     await this.repo
       .createQueryBuilder()
       .update(Dish)
-      .set(dto as any)
+      .set(setData)
       .where('id = :id AND restaurant_id = :rid', { id, rid: restaurantId })
       .execute();
     return this.findOne(id, restaurantId);
