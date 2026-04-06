@@ -11,7 +11,7 @@
  */
 import {
   BadRequestException, ForbiddenException,
-  Injectable, NotFoundException,
+  Injectable, InternalServerErrorException, Logger, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -29,6 +29,7 @@ import { OrdersGateway }                                 from './orders.gateway'
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   constructor(
     @InjectRepository(Order)      private orderRepo: Repository<Order>,
     @InjectRepository(OrderItem)  private itemRepo: Repository<OrderItem>,
@@ -249,16 +250,21 @@ export class OrdersService {
   }
 
   async findActive(restaurantId: number) {
-    return this.orderRepo.find({
-      where: [
-        { restaurantId, status: OrderStatus.PENDING },
-        { restaurantId, status: OrderStatus.CONFIRMED },
-        { restaurantId, status: OrderStatus.PREPARING },
-        { restaurantId, status: OrderStatus.READY },
-      ],
-      relations: ['items', 'table', 'waiter'],
-      order: { createdAt: 'ASC' },
-    });
+    try {
+      return await this.orderRepo.find({
+        where: [
+          { restaurantId, status: OrderStatus.PENDING },
+          { restaurantId, status: OrderStatus.CONFIRMED },
+          { restaurantId, status: OrderStatus.PREPARING },
+          { restaurantId, status: OrderStatus.READY },
+        ],
+        relations: ['items', 'table', 'waiter'],
+        order: { createdAt: 'ASC' },
+      });
+    } catch (err) {
+      this.logger.error(`findActive failed for restaurantId=${restaurantId}`, err?.stack);
+      throw new InternalServerErrorException('Error al obtener pedidos activos');
+    }
   }
 
   async findOne(id: number, restaurantId: number) {

@@ -3,7 +3,7 @@
  */
 import {
   Column, CreateDateColumn, Entity,
-  ManyToOne, PrimaryGeneratedColumn,
+  JoinColumn, ManyToOne, PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Order } from './order.entity';
 import { Dish }  from '../../dishes/entities/dish.entity';
@@ -21,12 +21,14 @@ export class OrderItem {
   id: number;
 
   @ManyToOne(() => Order, (order) => order.items, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
   @Column({ name: 'order_id', unsigned: true })
   orderId: number;
 
   @ManyToOne(() => Dish, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'dish_id' })
   dish: Dish;
 
   @Column({ name: 'dish_id', unsigned: true })

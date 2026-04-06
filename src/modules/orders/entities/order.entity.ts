@@ -12,7 +12,7 @@
  */
 import {
   Column, CreateDateColumn, Entity,
-  ManyToOne, OneToMany, PrimaryGeneratedColumn,
+  JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Restaurant } from '../../restaurants/entities/restaurant.entity';
 import { Table }      from '../../tables/entities/table.entity';
@@ -47,6 +47,7 @@ export class Order {
   id: number;
 
   @ManyToOne(() => Restaurant, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'restaurant_id' })
   restaurant: Restaurant;
 
   @Column({ name: 'restaurant_id', unsigned: true })
@@ -54,6 +55,7 @@ export class Order {
 
   /** NULL para órdenes takeout creadas por el comensal */
   @ManyToOne(() => Table, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'table_id' })
   table: Table | null;
 
   @Column({ name: 'table_id', unsigned: true, nullable: true })
@@ -61,6 +63,7 @@ export class Order {
 
   /** NULL para órdenes takeout creadas desde PWA pública sin JWT */
   @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'waiter_id' })
   waiter: User | null;
 
   @Column({ name: 'waiter_id', unsigned: true, nullable: true })
