@@ -36,7 +36,7 @@ copy .env.example .env
 ### 2. Abrir Docker Desktop y ejecutar Todo
 Espera a que Docker abra en tu PC, y en la terminal ejecuta:
 ```bash
-docker compose up --build -d
+docker-compose up --build -d
 ```
 **(Tardará aprox. 2 minutos la primera vez)**. ¡Y listo! Tu servidor NestJS, DB y Redis ya están corriendo listos para recibir peticiones en el puerto `3000`.
 
@@ -48,7 +48,7 @@ Si prefieres apagar la API de Docker y compilar el código manualmente al ir pro
 
 1. **Enciende solo las bases de datos de Docker:**
    ```bash
-   docker compose up mysql redis -d
+   docker-compose up -d mysql redis
    ```
 2. **Edita tu `.env` local para correrlo manual:**  
    Cambia `DATABASE_HOST=localhost` y `DATABASE_PORT=3307`.
@@ -151,13 +151,13 @@ Una vez que el prompt cambie a `mysql>`, puedes ejecutar los siguientes comandos
 docker ps
 
 # Ver todo lo que imprime la consola de NestJS real-time
-docker compose logs -f app
+docker-compose logs -f app
 
 # Apagar de forma segura
-docker compose down
+docker-compose down
 
 # Apagar y borrar bases de datos por si cometiste un error
-docker compose down -v
+docker-compose down -v
 ```
 
 ---
@@ -167,10 +167,10 @@ docker compose down -v
 | Error | Causa | Solución |
 |-------|-------|---------|
 | `ECONNREFUSED 127.0.0.1:3306` ejecutando comandos localmente (`migration:run`) | TypeORM intenta conectar por defecto al puerto `3306`, pero Docker expone MySQL en el puerto `3307` en la máquina local. | Asegúrate de que tu archivo `.env` local tenga `DATABASE_PORT=3307`.|
-| `ECONNREFUSED` / No DB en Docker | MySQL no levantó a tiempo | Manda otra vez `docker compose up -d` |
+| `ECONNREFUSED` / No DB en Docker | MySQL no levantó a tiempo | Manda otra vez `docker-compose up -d` |
 | Nest tira `TypeError TS2...` | Typescript estricto no pasó | Haz `npx tsc --noEmit` para ver qué línea rompe el código |
 | `Cannot GET /` en Postman | URL incorrecta | Verifica usar `http://localhost:3000` |
-| Cambios al código no se ven | Falló el Build del cache docker | Corre `docker compose up --build -d` |
+| Cambios al código no se ven | Falló el Build del cache docker | Corre `docker-compose up --build -d` |
 
 ---
 

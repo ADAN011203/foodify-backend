@@ -1,5 +1,5 @@
 // RUTA: src/modules/tables/entities/table.entity.ts
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, RelationId } from 'typeorm';
 import { Restaurant } from '../../restaurants/entities/restaurant.entity';
 
 export enum TableStatus {
@@ -15,7 +15,8 @@ export class Table {
   @ManyToOne(() => Restaurant, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'restaurant_id' })
   restaurant: Restaurant;
-  @Column({ name: 'restaurant_id', unsigned: true }) restaurantId: number;
+  @RelationId((t: Table) => t.restaurant)
+  restaurantId: number;
   @Column({ type: 'smallint' }) number: number;
   @Column({ type: 'tinyint', default: 4 }) capacity: number;
   @Column({ name: 'qr_code_url', length: 255, nullable: true }) qrCodeUrl: string | null;

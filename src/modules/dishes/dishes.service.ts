@@ -9,13 +9,24 @@ import { CreateDishDto } from './dto/dish.dto';
 export class DishesService {
   constructor(@InjectRepository(Dish) private repo: Repository<Dish>) {}
 
-  findAll(restaurantId: number, filters: { categoryId?: number; available?: boolean; search?: string; menuId?: number }) {
+  findAll(
+    restaurantId: number,
+    filters: { categoryId?: number; available?: boolean; search?: string; menuId?: number },
+    role: string = 'restaurant_admin',
+  ) {
     const qb = this.repo.createQueryBuilder('d')
       .leftJoinAndSelect('d.category','cat')
       // En strings de QueryBuilder usamos nombres reales de columnas SQL.
       .where('d.restaurant_id = :rid AND d.deleted_at IS NULL', { rid: restaurantId });
+
+    // Roles no-admin solo ven platillos disponibles (waiter, chef, cashier)
+    if (role !== 'restaurant_admin') {
+      qb.andWhere('d.is_available = :avail', { avail: true });
+    } else if (filters.available !== undefined) {
+      qb.andWhere('d.is_available = :a', { a: filters.available });
+    }
+
     if (filters.categoryId) qb.andWhere('d.category_id = :cid', { cid: filters.categoryId });
-    if (filters.available !== undefined) qb.andWhere('d.is_available = :a', { a: filters.available });
     if (filters.search) qb.andWhere('d.name LIKE :s', { s: `%${filters.search}%` });
     return qb.orderBy('d.sort_order','ASC').getMany();
   }

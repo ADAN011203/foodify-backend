@@ -20,9 +20,15 @@ import { Type } from 'class-transformer';
 import { OrderType } from '../entities/order.entity';
 
 export class CreateOrderItemDto {
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  dishId: number;
+  dishId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  dish_id?: number;
 
   @IsInt()
   @IsPositive()
@@ -32,6 +38,11 @@ export class CreateOrderItemDto {
   @IsString()
   @MaxLength(500)
   specialNotes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  special_notes?: string;
 }
 
 export class CreateOrderDto {
@@ -44,6 +55,10 @@ export class CreateOrderDto {
   @IsInt()
   @IsPositive()
   tableId?: number;
+
+  @IsOptional()
+  @IsInt()
+  table_id?: number;
 
   // ── takeout (PWA pública, sin JWT) — v3.2 ──────────────────────
   /**

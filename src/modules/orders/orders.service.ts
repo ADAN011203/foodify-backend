@@ -19,6 +19,7 @@ import * as QRCode from 'qrcode';
 
 import { Order, OrderStatus, OrderType, KitchenStatus } from './entities/order.entity';
 import { OrderItem, ItemStatus }                         from './entities/order-item.entity';
+import { Table }                                         from '../tables/entities/table.entity';
 import { Dish }                                          from '../dishes/entities/dish.entity';
 import { CreateOrderDto }                                from './dto/create-order.dto';
 import {
@@ -49,6 +50,22 @@ export class OrdersService {
     restaurantId: number,
     waiterId: number | null,   // null cuando viene de PWA pública sin JWT
   ): Promise<Order> {
+    // Normalizar snake_case de Android
+    if (dto.table_id === 0) dto.table_id = undefined;
+    dto.tableId = dto.tableId || dto.table_id;
+    
+    dto.items = dto.items.map(i => ({
+      ...i,
+      dishId: i.dishId || i.dish_id,
+      specialNotes: i.specialNotes || i.special_notes,
+    }));
+
+    if (dto.tableId) {
+      dto.type = OrderType.DINE_IN;
+    } else {
+      dto.type = OrderType.TAKEOUT;
+    }
+
     // Validar que takeout público tenga nombre y teléfono
     if (dto.type === OrderType.TAKEOUT && !waiterId) {
       if (!dto.customerName || !dto.customerPhone) {
@@ -62,7 +79,7 @@ export class OrdersService {
     await this.validateOrderSchedule(dto.items.map((i) => i.dishId), restaurantId);
 
     // Generar folio único 0001-9999
-    const count = await this.orderRepo.count({ where: { restaurantId } });
+    const count = await this.orderRepo.count({ where: { restaurant: { id: restaurantId } } });
     const orderNumber = String((count % 9999) + 1).padStart(4, '0');
 
     // Generar QR para takeout
@@ -86,6 +103,13 @@ export class OrdersService {
         }),
       );
 
+      // Validar mesa
+      if (dto.tableId) {
+        const table = await em.findOneBy(Table, { id: dto.tableId, restaurant: { id: restaurantId } } as any);
+        if (!table) throw new BadRequestException('Mesa no encontrada o inválida');
+        await em.update(Table, { id: dto.tableId }, { status: 'occupied' as any });
+      }
+
       const subtotal = itemsWithPrice.reduce(
         (acc, i) => acc + i.unitPrice * i.quantity, 0,
       );
@@ -93,9 +117,9 @@ export class OrdersService {
       const total     = subtotal + taxAmount;
 
       const order = em.create(Order, {
-        restaurantId,
-        tableId:       dto.tableId ?? null,
-        waiterId:      waiterId ?? null,
+        restaurant: { id: restaurantId } as any,
+        table:         dto.tableId ? { id: dto.tableId } as any : null,
+        waiter:        waiterId ? { id: waiterId } as any : null,
         orderNumber,
         type:          dto.type,
         status:        OrderStatus.PENDING,
@@ -149,7 +173,7 @@ export class OrdersService {
   // ─────────────────────────────────────────────────────────────────────────
   async scanQr(orderId: number, restaurantId: number): Promise<Order> {
     const order = await this.orderRepo.findOne({
-      where: { id: orderId, restaurantId },
+      where: { id: orderId, restaurant: { id: restaurantId } },
       relations: ['items'],
     });
     if (!order) throw new NotFoundException('Orden no encontrada');
@@ -171,6 +195,10 @@ export class OrdersService {
       deliveredAt: new Date(),
     });
 
+    if (order.tableId) {
+      await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+    }
+
     // El trigger MySQL after_order_delivered descontará el inventario FIFO
     // Emitir evento al namespace /restaurant
     this.ordersGateway.emitOrderDelivered(restaurantId, {
@@ -189,7 +217,7 @@ export class OrdersService {
     restaurantId: number,
     dto: UpdateOrderStatusDto,
   ): Promise<Order> {
-    const order = await this.orderRepo.findOneBy({ id: orderId, restaurantId });
+    const order = await this.orderRepo.findOneBy({ id: orderId, restaurant: { id: restaurantId } } as any);
     if (!order) throw new NotFoundException('Orden no encontrada');
 
     // Validar transición de estados (sin retrocesos)
@@ -221,6 +249,13 @@ export class OrdersService {
     }
 
     await this.orderRepo.update(orderId, updates);
+    
+    if (dto.status === OrderStatus.DELIVERED || dto.status === OrderStatus.CANCELLED) {
+      if (order.tableId) {
+         await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+      }
+    }
+    
     return this.orderRepo.findOne({ where: { id: orderId }, relations: ['items'] });
   }
 
@@ -236,40 +271,44 @@ export class OrdersService {
       .leftJoinAndSelect('o.items', 'items')
       .leftJoinAndSelect('o.table', 'table')
       .leftJoinAndSelect('o.waiter', 'waiter')
-      .where('o.restaurantId = :restaurantId', { restaurantId });
+      .where('o.restaurant_id = :restaurantId', { restaurantId });
 
     if (filters.status)        qb.andWhere('o.status = :status',              { status: filters.status });
-    if (filters.kitchenStatus) qb.andWhere('o.kitchenStatus = :ks',           { ks: filters.kitchenStatus });
-    if (filters.tableId)       qb.andWhere('o.tableId = :tableId',            { tableId: filters.tableId });
-    if (filters.waiterId)      qb.andWhere('o.waiterId = :waiterId',          { waiterId: filters.waiterId });
-    if (filters.dateFrom)      qb.andWhere('o.createdAt >= :dateFrom',        { dateFrom: filters.dateFrom });
-    if (filters.dateTo)        qb.andWhere('o.createdAt <= :dateTo',          { dateTo: filters.dateTo });
+    if (filters.kitchenStatus) qb.andWhere('o.kitchen_status = :ks',          { ks: filters.kitchenStatus });
+    if (filters.tableId)       qb.andWhere('o.table_id = :tableId',           { tableId: filters.tableId });
+    if (filters.waiterId)      qb.andWhere('o.waiter_id = :waiterId',         { waiterId: filters.waiterId });
+    if (filters.dateFrom)      qb.andWhere('o.created_at >= :dateFrom',       { dateFrom: filters.dateFrom });
+    if (filters.dateTo)        qb.andWhere('o.created_at <= :dateTo',         { dateTo: filters.dateTo });
 
-    qb.orderBy('o.createdAt', 'DESC');
+    qb.orderBy('o.created_at', 'DESC');
     return qb.getMany();
   }
 
   async findActive(restaurantId: number) {
     try {
+      this.logger.debug(`findActive: restaurantId=${restaurantId}`);
       return await this.orderRepo.find({
         where: [
-          { restaurantId, status: OrderStatus.PENDING },
-          { restaurantId, status: OrderStatus.CONFIRMED },
-          { restaurantId, status: OrderStatus.PREPARING },
-          { restaurantId, status: OrderStatus.READY },
+          { restaurant: { id: restaurantId }, status: OrderStatus.PENDING },
+          { restaurant: { id: restaurantId }, status: OrderStatus.CONFIRMED },
+          { restaurant: { id: restaurantId }, status: OrderStatus.PREPARING },
+          { restaurant: { id: restaurantId }, status: OrderStatus.READY },
         ],
         relations: ['items', 'table', 'waiter'],
         order: { createdAt: 'ASC' },
       });
     } catch (err) {
-      this.logger.error(`findActive failed for restaurantId=${restaurantId}`, err?.stack);
+      this.logger.error(
+        `findActive FAILED for restaurantId=${restaurantId}: ${err?.message}`,
+        err?.stack,
+      );
       throw new InternalServerErrorException('Error al obtener pedidos activos');
     }
   }
 
   async findOne(id: number, restaurantId: number) {
     const order = await this.orderRepo.findOne({
-      where: { id, restaurantId },
+      where: { id, restaurant: { id: restaurantId } },
       relations: ['items', 'items.dish', 'table', 'waiter'],
     });
     if (!order) throw new NotFoundException('Orden no encontrada');
@@ -281,7 +320,7 @@ export class OrdersService {
     if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED) {
       throw new BadRequestException('No se pueden agregar ítems a una orden finalizada');
     }
-    const dish = await this.dishRepo.findOneBy({ id: dto.dishId, restaurantId });
+    const dish = await this.dishRepo.findOneBy({ id: dto.dishId, restaurant: { id: restaurantId } } as any);
     if (!dish || !dish.isAvailable) throw new NotFoundException('Platillo no disponible');
 
     const item = this.itemRepo.create({
@@ -305,9 +344,15 @@ export class OrdersService {
   }
 
   async cancel(orderId: number, restaurantId: number, cancelReason: string) {
-    return this.updateStatus(orderId, restaurantId, {
+    const order = await this.findOne(orderId, restaurantId);
+    const result = await this.updateStatus(orderId, restaurantId, {
       status: OrderStatus.CANCELLED, cancelReason,
     } as UpdateOrderStatusDto);
+    
+    if (order.tableId) {
+      await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+    }
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -317,7 +362,7 @@ export class OrdersService {
   private async validateOrderSchedule(dishIds: number[], restaurantId: number) {
     for (const dishId of dishIds) {
       const dish = await this.dishRepo.findOne({
-        where: { id: dishId, restaurantId },
+        where: { id: dishId, restaurant: { id: restaurantId } } as any,
         relations: ['category', 'category.menu'],
       });
       if (!dish) throw new NotFoundException(`Platillo #${dishId} no encontrado`);

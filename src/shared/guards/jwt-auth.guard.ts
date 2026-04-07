@@ -2,7 +2,7 @@
  * RUTA: src/shared/guards/jwt-auth.guard.ts
  * Extiende AuthGuard('jwt') respetando el decorador @Public().
  */
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector }                    from '@nestjs/core';
 import { AuthGuard }                    from '@nestjs/passport';
 import { IS_PUBLIC_KEY }                from '../decorators/roles.decorator';
@@ -18,7 +18,23 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
-    if (isPublic) return true;
+
+    const request = ctx.switchToHttp().getRequest();
+    request.isPublicEndpoint = isPublic;
+
     return super.canActivate(ctx);
+  }
+
+  handleRequest(err: any, user: any, info: any, context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest();
+    
+    if (request.isPublicEndpoint) {
+      return user || null;
+    }
+
+    if (err || !user) {
+      throw err || new UnauthorizedException();
+    }
+    return user;
   }
 }
