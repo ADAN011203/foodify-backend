@@ -259,6 +259,23 @@ export class OrdersService {
     return this.orderRepo.findOne({ where: { id: orderId }, relations: ['items'] });
   }
 
+  private mapOrderRelations(order: Order): any {
+    const o = order as any;
+    if (o.table) {
+      o.tableNumber = o.table.number;
+    }
+    if (o.items) {
+      o.items = o.items.map((item: any) => {
+        if (item.dish) {
+          item.dishName = item.dish.name;
+          item.dishImages = item.dish.images || null;
+        }
+        return item;
+      });
+    }
+    return o;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // LISTAR / DETALLE
   // ─────────────────────────────────────────────────────────────────────────
@@ -267,37 +284,42 @@ export class OrdersService {
     tableId?: number; waiterId?: number;
     dateFrom?: string; dateTo?: string;
   }) {
-    const qb = this.orderRepo.createQueryBuilder('o')
-      .leftJoinAndSelect('o.items', 'items')
-      .leftJoinAndSelect('o.table', 'table')
-      .leftJoinAndSelect('o.waiter', 'waiter')
-      .where('o.restaurant_id = :restaurantId', { restaurantId });
+    const qb = this.orderRepo.createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'item')
+      .leftJoinAndSelect('item.dish', 'dish')
+      .leftJoinAndSelect('order.table', 'table')
+      .leftJoinAndSelect('order.waiter', 'waiter')
+      .where('order.restaurant = :restaurantId', { restaurantId });
 
-    if (filters.status)        qb.andWhere('o.status = :status',              { status: filters.status });
-    if (filters.kitchenStatus) qb.andWhere('o.kitchen_status = :ks',          { ks: filters.kitchenStatus });
-    if (filters.tableId)       qb.andWhere('o.table_id = :tableId',           { tableId: filters.tableId });
-    if (filters.waiterId)      qb.andWhere('o.waiter_id = :waiterId',         { waiterId: filters.waiterId });
-    if (filters.dateFrom)      qb.andWhere('o.created_at >= :dateFrom',       { dateFrom: filters.dateFrom });
-    if (filters.dateTo)        qb.andWhere('o.created_at <= :dateTo',         { dateTo: filters.dateTo });
+    if (filters.status)        qb.andWhere('order.status = :status',              { status: filters.status });
+    if (filters.kitchenStatus) qb.andWhere('order.kitchen_status = :ks',          { ks: filters.kitchenStatus });
+    if (filters.tableId)       qb.andWhere('order.table_id = :tableId',           { tableId: filters.tableId });
+    if (filters.waiterId)      qb.andWhere('order.waiter_id = :waiterId',         { waiterId: filters.waiterId });
+    if (filters.dateFrom)      qb.andWhere('order.created_at >= :dateFrom',       { dateFrom: filters.dateFrom });
+    if (filters.dateTo)        qb.andWhere('order.created_at <= :dateTo',         { dateTo: filters.dateTo });
 
-    qb.orderBy('o.created_at', 'DESC');
-    return qb.getMany();
+    qb.orderBy('order.created_at', 'DESC');
+    const orders = await qb.getMany();
+    return orders.map(o => this.mapOrderRelations(o));
   }
 
   async findActive(restaurantId: number) {
     try {
       this.logger.debug(`findActive: restaurantId=${restaurantId}`);
-      return await this.orderRepo.find({
-        where: [
-          { restaurant: { id: restaurantId }, status: OrderStatus.PENDING },
-          { restaurant: { id: restaurantId }, status: OrderStatus.CONFIRMED },
-          { restaurant: { id: restaurantId }, status: OrderStatus.PREPARING },
-          { restaurant: { id: restaurantId }, status: OrderStatus.READY },
-        ],
-        relations: ['items', 'table', 'waiter'],
-        order: { createdAt: 'ASC' },
-      });
-    } catch (err) {
+      const statuses = [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY];
+      
+      const orders = await this.orderRepo.createQueryBuilder('order')
+        .leftJoinAndSelect('order.table', 'table')
+        .leftJoinAndSelect('order.items', 'item')
+        .leftJoinAndSelect('item.dish', 'dish')
+        .leftJoinAndSelect('order.waiter', 'waiter')
+        .where('order.restaurant = :restaurantId', { restaurantId })
+        .andWhere('order.status IN (:...statuses)', { statuses })
+        .orderBy('order.createdAt', 'ASC')
+        .getMany();
+        
+      return orders.map(o => this.mapOrderRelations(o));
+    } catch (err: any) {
       this.logger.error(
         `findActive FAILED for restaurantId=${restaurantId}: ${err?.message}`,
         err?.stack,
@@ -307,12 +329,17 @@ export class OrdersService {
   }
 
   async findOne(id: number, restaurantId: number) {
-    const order = await this.orderRepo.findOne({
-      where: { id, restaurant: { id: restaurantId } },
-      relations: ['items', 'items.dish', 'table', 'waiter'],
-    });
+    const order = await this.orderRepo.createQueryBuilder('order')
+        .leftJoinAndSelect('order.table', 'table')
+        .leftJoinAndSelect('order.items', 'item')
+        .leftJoinAndSelect('item.dish', 'dish')
+        .leftJoinAndSelect('order.waiter', 'waiter')
+        .where('order.restaurant = :restaurantId', { restaurantId })
+        .andWhere('order.id = :id', { id })
+        .getOne();
+        
     if (!order) throw new NotFoundException('Orden no encontrada');
-    return order;
+    return this.mapOrderRelations(order);
   }
 
   async addItem(orderId: number, restaurantId: number, dto: AddOrderItemDto) {

@@ -25,7 +25,7 @@ export class DishesController {
      return { roles: 'none', user };
   }
 
-  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CHEF, Role.CASHIER)
+  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER)
   @Get()
   findAll(
     @RestaurantId() rid: number,
@@ -41,7 +41,7 @@ export class DishesController {
    * GET /api/v1/dishes/:id — Detalle de platillo
    * Roles: restaurant_admin, waiter, chef, cashier
    */
-  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CHEF, Role.CASHIER)
+  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER, Role.CHEF)
   @Get(':id')
   findOne(@Param('id',ParseIntPipe) id: number, @RestaurantId() rid: number) {
     return this.svc.findOne(id, rid);
