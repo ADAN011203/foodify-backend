@@ -1,0 +1,39 @@
+name: Deploy Backend to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+      - adan
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Zip of the Source Code
+        run: zip -r backend.zip . -x "*.git*" "node_modules/*" "dist/*"
+
+      - name: Copy Zip to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          source: "backend.zip"
+          target: "/home/ubuntu"
+
+      - name: Execute Docker Compose on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          script: |
+            unzip -o /home/ubuntu/backend.zip -d /home/ubuntu/backend
+            cd /home/ubuntu/backend
+            sudo docker compose up -d --build
+            rm /home/ubuntu/backend.zip
