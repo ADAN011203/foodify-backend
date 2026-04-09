@@ -61,7 +61,7 @@ import { SaasSubscription } from './modules/saas/entities/saas-subscription.enti
         database:    config.get<string>('DATABASE_NAME'),
         entities:    [__dirname + '/modules/**/*.entity{.ts,.js}'],
         migrations:  [__dirname + '/database/migrations/*{.ts,.js}'],
-        synchronize: false,   // SIEMPRE false en producción — usar migraciones
+        synchronize: true,   // TEMPORAL: true para crear columnas faltantes (archived_in_kitchen, etc)
         charset:     'utf8mb4',
         timezone:    'Z',
         poolSize:    config.get<number>('DATABASE_POOL_SIZE', 10),

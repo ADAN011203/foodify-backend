@@ -1,5 +1,7 @@
 import { AppDataSource } from '../../config/database.config';
 import { runSeeds }      from './initial.seed';
+import { runTablesSeed } from './tables.seed';
+import { runDishesSeed } from './dishes.seed';
 
 async function main() {
   await AppDataSource.initialize();
@@ -19,6 +21,8 @@ async function main() {
     console.log('[Seed] No se pudo diagnosticar conexión:', e?.message ?? e);
   }
   await runSeeds(AppDataSource);
+  await runTablesSeed(AppDataSource);
+  await runDishesSeed(AppDataSource);
   await AppDataSource.destroy();
 }
 

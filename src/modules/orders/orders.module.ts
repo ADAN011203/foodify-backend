@@ -1,8 +1,9 @@
 /**
  * RUTA: src/modules/orders/orders.module.ts
  */
-import { Module }        from '@nestjs/common';
+import { Module, forwardRef }        from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { KitchenModule } from '../kitchen/kitchen.module';
 import { OrdersController } from './orders.controller';
 import { OrdersService }    from './orders.service';
 import { OrdersGateway }    from './orders.gateway';
@@ -15,6 +16,7 @@ import { AuthModule }       from '../auth/auth.module';
   imports:     [
     TypeOrmModule.forFeature([Order, OrderItem, Dish]),
     AuthModule,
+    forwardRef(() => KitchenModule),
   ],
   controllers: [OrdersController],
   providers:   [OrdersService, OrdersGateway],

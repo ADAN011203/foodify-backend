@@ -31,7 +31,7 @@ export const AppDataSource = new DataSource({
   database: process.env.DATABASE_NAME || 'foodify_db',
   entities: [__dirname + '/../modules/**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
-  synchronize: false,
+  synchronize: true,
   charset: 'utf8mb4',
   timezone: 'Z',
 });

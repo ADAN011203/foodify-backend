@@ -15,6 +15,7 @@
 import 'reflect-metadata';
 import { AppDataSource } from '../../config/database.config';
 import * as bcrypt from 'bcrypt';
+import { runTablesSeed } from './tables.seed';
 
 async function main() {
   await AppDataSource.initialize();
@@ -23,6 +24,8 @@ async function main() {
   await queryRunner.startTransaction();
 
   try {
+    // Correr semilla de mesas primero
+    await runTablesSeed(AppDataSource);
     // Obtener el restaurante demo
     const restRows = await queryRunner.query(
       `SELECT id FROM restaurants WHERE slug = 'demo-restaurant' LIMIT 1`,

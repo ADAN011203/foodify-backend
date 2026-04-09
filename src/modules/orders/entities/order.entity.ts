@@ -12,7 +12,7 @@
  */
 import {
   Column, CreateDateColumn, Entity,
-  JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn,
+  JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, RelationId,
 } from 'typeorm';
 import { Restaurant } from '../../restaurants/entities/restaurant.entity';
 import { Table }      from '../../tables/entities/table.entity';
@@ -50,7 +50,7 @@ export class Order {
   @JoinColumn({ name: 'restaurant_id' })
   restaurant: Restaurant;
 
-  @Column({ name: 'restaurant_id', unsigned: true })
+  @RelationId((o: Order) => o.restaurant)
   restaurantId: number;
 
   /** NULL para órdenes takeout creadas por el comensal */
@@ -58,7 +58,7 @@ export class Order {
   @JoinColumn({ name: 'table_id' })
   table: Table | null;
 
-  @Column({ name: 'table_id', unsigned: true, nullable: true })
+  @RelationId((o: Order) => o.table)
   tableId: number | null;
 
   /** NULL para órdenes takeout creadas desde PWA pública sin JWT */
@@ -66,7 +66,7 @@ export class Order {
   @JoinColumn({ name: 'waiter_id' })
   waiter: User | null;
 
-  @Column({ name: 'waiter_id', unsigned: true, nullable: true })
+  @RelationId((o: Order) => o.waiter)
   waiterId: number | null;
 
   /** Folio visible al cliente: 0001-9999 */
@@ -146,6 +146,13 @@ export class Order {
 
   @Column({ name: 'cancel_reason', length: 255, nullable: true })
   cancelReason: string | null;
+
+  /**
+   * Indica si la comanda ha sido archivada (u ocultada) por el chef.
+   * Permite limpiar el historial de cocina sin borrar datos financieros.
+   */
+  @Column({ name: 'archived_in_kitchen', default: false })
+  archivedInKitchen: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

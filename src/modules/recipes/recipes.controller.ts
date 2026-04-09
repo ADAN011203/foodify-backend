@@ -14,7 +14,7 @@ import { Roles, Role }    from '../../shared/decorators/roles.decorator';
 export class RecipesController {
   constructor(private readonly svc: RecipesService) {}
 
-  @Roles(Role.RESTAURANT_ADMIN, Role.CHEF)
+  @Roles(Role.RESTAURANT_ADMIN, Role.CHEF, Role.WAITER)
   @Get(':id/recipe')
   findByDish(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findByDish(id);

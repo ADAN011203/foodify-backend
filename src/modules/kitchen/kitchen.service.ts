@@ -10,15 +10,18 @@
  */
 import {
   BadRequestException, Injectable, NotFoundException,
+  Inject, forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository }       from 'typeorm';
+import { Repository, MoreThanOrEqual, Not, IsNull }       from 'typeorm';
 
 import { Order, KitchenStatus }  from '../orders/entities/order.entity';
 import { OrderItem, ItemStatus } from '../orders/entities/order-item.entity';
 import { KitchenSession }        from './entities/kitchen-session.entity';
 import { KitchenGateway }        from './kitchen.gateway';
 import { OrdersGateway }         from '../orders/orders.gateway';
+import { DishesService }         from '../dishes/dishes.service';
+import { RecipesService }        from '../recipes/recipes.service';
 import {
   UpdateKitchenStatusDto,
   UpdateItemStatusDto,
@@ -50,29 +53,56 @@ export class KitchenService {
     @InjectRepository(KitchenSession)
     private sessionRepo: Repository<KitchenSession>,
     private kitchenGateway: KitchenGateway,
-    private ordersGateway: OrdersGateway,
+    @Inject(forwardRef(() => OrdersGateway)) private ordersGateway: OrdersGateway,
+    private dishesService:  DishesService,
+    private recipesService: RecipesService,
   ) {}
 
   // ── Comandas activas ────────────────────────────────────────────
-  getActiveOrders(restaurantId: number) {
-    return this.orderRepo.find({
+  async getActiveOrders(restaurantId: number) {
+    const orders = await this.orderRepo.find({
       where: [
-        { restaurantId, kitchenStatus: KitchenStatus.PENDING },
-        { restaurantId, kitchenStatus: KitchenStatus.PREPARING },
-        { restaurantId, kitchenStatus: KitchenStatus.READY },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.PENDING },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.PREPARING },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.READY },
       ],
       relations: ['items', 'items.dish', 'table', 'waiter'],
       order:     { createdAt: 'ASC' },
     });
+    return orders.map(o => this.mapToKitchenOrderDto(o));
   }
 
   async getOrder(id: number, restaurantId: number) {
     const order = await this.orderRepo.findOne({
-      where:     { id, restaurantId },
+      where:     { id, restaurant: { id: restaurantId } },
       relations: ['items', 'items.dish', 'table', 'waiter'],
     });
     if (!order) throw new NotFoundException('Comanda no encontrada');
-    return order;
+    return this.mapToKitchenOrderDto(order);
+  }
+
+  private mapToKitchenOrderDto(order: Order) {
+    return {
+      id:            order.id,
+      orderNumber:   order.orderNumber,
+      tableId:       order.tableId,
+      tableNumber:   order.table?.number ?? null,
+      type:          order.type,
+      kitchenStatus: order.kitchenStatus,
+      status:        order.status,
+      waiterName:    order.waiter?.fullName ?? 'N/A',
+      createdAt:     order.createdAt,
+      items: (order.items || []).map(i => ({
+        id:           i.id,
+        dishId:       i.dishId,
+        dishName:     i.dish?.name ?? 'Desconocido',
+        quantity:     i.quantity,
+        specialNotes: i.specialNotes,
+        status:       i.status,
+        startedAt:    i.startedAt,
+        readyAt:      i.readyAt,
+      })),
+    };
   }
 
   // ── Cambiar estado de comanda completa ──────────────────────────
@@ -81,7 +111,11 @@ export class KitchenService {
     restaurantId: number,
     dto: UpdateKitchenStatusDto,
   ) {
-    const order = await this.getOrder(id, restaurantId);
+    const order = await this.orderRepo.findOne({
+      where:     { id, restaurant: { id: restaurantId } },
+      relations: ['items', 'items.dish', 'table', 'waiter'],
+    });
+    if (!order) throw new NotFoundException('Comanda no encontrada');
 
     const currentIdx = KITCHEN_STATUS_ORDER.indexOf(order.kitchenStatus);
     const nextIdx    = KITCHEN_STATUS_ORDER.indexOf(dto.status as unknown as KitchenStatus);
@@ -126,6 +160,8 @@ export class KitchenService {
     if (!item || item.order.restaurantId !== restaurantId) {
       throw new NotFoundException('Ítem no encontrado');
     }
+
+    if (item.status === (dto.status as unknown as ItemStatus)) return item;
 
     const currentIdx = ITEM_STATUS_ORDER.indexOf(item.status);
     const nextIdx    = ITEM_STATUS_ORDER.indexOf(dto.status as unknown as ItemStatus);
@@ -180,12 +216,14 @@ export class KitchenService {
 
   // ── Platillos y recetas ─────────────────────────────────────────
   async getDishes(restaurantId: number) {
-    // Delega al módulo de dishes — aquí retornamos con receta resumida
-    return { message: 'Ver DishesService.findAll con recetas resumidas', restaurantId };
+    // Retornamos todos los platillos activos del restaurante
+    return this.dishesService.findAll(restaurantId, {}, 'chef');
   }
 
   async getRecipe(dishId: number, restaurantId: number) {
-    return { message: 'Ver RecipesService.findByDish', dishId, restaurantId };
+    // Validar primero que el platillo pertenece al restaurante (seguridad)
+    await this.dishesService.findOne(dishId, restaurantId);
+    return this.recipesService.findByDish(dishId);
   }
 
   async createRecipe(restaurantId: number, dto: CreateRecipeDto) {
@@ -199,21 +237,47 @@ export class KitchenService {
   // ── Stats del turno ─────────────────────────────────────────────
   async getStats(restaurantId: number, chefId: number) {
     const session = await this.sessionRepo.findOne({
-      where:  { chef: { id: chefId }, restaurantId, endedAt: null },
+      where:  { chef: { id: chefId }, restaurant: { id: restaurantId }, endedAt: null },
       order:  { startedAt: 'DESC' },
     });
 
-    const completedOrders = await this.orderRepo.count({
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const completedToday = await this.orderRepo.count({
       where: {
-        restaurantId,
+        restaurant: { id: restaurantId },
         kitchenStatus: KitchenStatus.DELIVERED,
+        createdAt: MoreThanOrEqual(today),
       },
     });
 
+    // Calcular tiempo promedio de preparación (en minutos)
+    const recentItems = await this.itemRepo.find({
+      where: {
+        order: { restaurant: { id: restaurantId } },
+        status: ItemStatus.READY,
+        startedAt: Not(IsNull()),
+        readyAt: MoreThanOrEqual(today),
+      },
+    });
+
+    let avgPrepTimeMin = 0;
+    if (recentItems.length > 0) {
+      const totalMs = recentItems.reduce((acc, item) => {
+        return acc + (item.readyAt.getTime() - item.startedAt.getTime());
+      }, 0);
+      avgPrepTimeMin = (totalMs / recentItems.length) / 60000;
+    }
+
     return {
-      sessionActive:   !!session,
-      sessionStartedAt: session?.startedAt ?? null,
-      completedOrders,
+      completedToday,
+      avgPrepTimeMin,
+      activeSession: session ? {
+        id: session.id,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+      } : null,
     };
   }
 
@@ -243,5 +307,61 @@ export class KitchenService {
 
     await this.sessionRepo.update(sessionId, { endedAt: new Date() });
     return this.sessionRepo.findOneBy({ id: sessionId });
+  }
+
+  // ── Historial de comandas ─────────────────────────────────────────
+  async getOrdersHistory(restaurantId: number, date?: string) {
+    const qb = this.orderRepo.createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'item')
+      .leftJoinAndSelect('item.dish', 'dish')
+      .leftJoinAndSelect('order.table', 'table')
+      .leftJoinAndSelect('order.waiter', 'waiter')
+      .where('order.restaurant = :restaurantId', { restaurantId })
+      .andWhere('order.archivedInKitchen = :archived', { archived: false });
+
+    // Por defecto mostrar entregados y cancelados
+    qb.andWhere('(order.status = :s1 OR order.status = :s2 OR order.kitchenStatus = :ks)', {
+      s1: 'delivered',
+      s2: 'cancelled',
+      ks: 'delivered',
+    });
+
+    if (date) {
+      // Filtrar por una fecha específica (YYYY-MM-DD)
+      qb.andWhere('DATE(order.createdAt) = :date', { date });
+    } else {
+      // Por defecto todo lo de HOY (desde las 00:00)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      qb.andWhere('order.createdAt >= :today', { today });
+    }
+
+    qb.orderBy('order.createdAt', 'DESC');
+    const orders = await qb.getMany();
+    return orders.map(o => this.mapToKitchenOrderDto(o));
+  }
+
+  async archiveOrder(orderId: number, restaurantId: number) {
+    const order = await this.orderRepo.findOneBy({ id: orderId, restaurant: { id: restaurantId } } as any);
+    if (!order) throw new NotFoundException('Comanda no encontrada');
+
+    await this.orderRepo.update(orderId, { archivedInKitchen: true });
+    return { success: true, message: 'Comanda archivada del historial de cocina' };
+  }
+
+  async archiveAllHistory(restaurantId: number) {
+    // Archiva todos los que ya están entregados/cancelados
+    await this.orderRepo.createQueryBuilder()
+      .update(Order)
+      .set({ archivedInKitchen: true })
+      .where('restaurant_id = :restaurantId', { restaurantId })
+      .andWhere('(status = :s1 OR status = :s2 OR kitchen_status = :ks)', {
+        s1: 'delivered',
+        s2: 'cancelled',
+        ks: 'delivered',
+      })
+      .execute();
+
+    return { success: true, message: 'Todo el historial ha sido archivado' };
   }
 }

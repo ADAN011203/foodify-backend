@@ -84,9 +84,7 @@ El archivo `Foodify_v3.2_Postman_Collection.json` ya está incluido en la raíz 
 |-----|-------|-----------|
 | saas_admin (CODEX) | admin@codex.foodify.mx | Codex2026! |
 | restaurant_admin (demo) | admin@demo.foodify.mx | Demo2026! |
-| waiter (mesero) | mesero@demo.foodify.mx | Staff2026! |
-| cashier (cajero) | cajero@demo.foodify.mx | Staff2026! |
-| chef (cocina) | cocina@demo.foodify.mx | Staff2026! |
+
 
 ---
 

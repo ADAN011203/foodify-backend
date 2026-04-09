@@ -3,7 +3,7 @@
  */
 import {
   Column, CreateDateColumn, Entity,
-  ManyToOne, PrimaryGeneratedColumn,
+  JoinColumn, ManyToOne, PrimaryGeneratedColumn,
 } from 'typeorm';
 import { User }       from '../../users/entities/user.entity';
 import { Restaurant } from '../../restaurants/entities/restaurant.entity';
@@ -14,9 +14,11 @@ export class KitchenSession {
   id: number;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'chef_id' })
   chef: User;
 
   @ManyToOne(() => Restaurant, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'restaurant_id' })
   restaurant: Restaurant;
 
   @Column({ name: 'restaurant_id', unsigned: true })

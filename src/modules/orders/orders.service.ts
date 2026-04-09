@@ -12,6 +12,7 @@
 import {
   BadRequestException, ForbiddenException,
   Injectable, InternalServerErrorException, Logger, NotFoundException,
+  Inject, forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -19,6 +20,7 @@ import * as QRCode from 'qrcode';
 
 import { Order, OrderStatus, OrderType, KitchenStatus } from './entities/order.entity';
 import { OrderItem, ItemStatus }                         from './entities/order-item.entity';
+import { Table }                                         from '../tables/entities/table.entity';
 import { Dish }                                          from '../dishes/entities/dish.entity';
 import { CreateOrderDto }                                from './dto/create-order.dto';
 import {
@@ -26,6 +28,7 @@ import {
   UpdateOrderItemDto, ScanQrDto,
 }                                                        from './dto/update-order.dto';
 import { OrdersGateway }                                 from './orders.gateway';
+import { KitchenGateway }                                from '../kitchen/kitchen.gateway';
 
 @Injectable()
 export class OrdersService {
@@ -35,7 +38,8 @@ export class OrdersService {
     @InjectRepository(OrderItem)  private itemRepo: Repository<OrderItem>,
     @InjectRepository(Dish)       private dishRepo: Repository<Dish>,
     private dataSource: DataSource,
-    private ordersGateway: OrdersGateway,
+    @Inject(forwardRef(() => OrdersGateway)) private ordersGateway: OrdersGateway,
+    @Inject(forwardRef(() => KitchenGateway)) private kitchenGateway: KitchenGateway,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -49,6 +53,22 @@ export class OrdersService {
     restaurantId: number,
     waiterId: number | null,   // null cuando viene de PWA pública sin JWT
   ): Promise<Order> {
+    // Normalizar snake_case de Android
+    if (dto.table_id === 0) dto.table_id = undefined;
+    dto.tableId = dto.tableId || dto.table_id;
+    
+    dto.items = dto.items.map(i => ({
+      ...i,
+      dishId: i.dishId || i.dish_id,
+      specialNotes: i.specialNotes || i.special_notes,
+    }));
+
+    if (dto.tableId) {
+      dto.type = OrderType.DINE_IN;
+    } else {
+      dto.type = OrderType.TAKEOUT;
+    }
+
     // Validar que takeout público tenga nombre y teléfono
     if (dto.type === OrderType.TAKEOUT && !waiterId) {
       if (!dto.customerName || !dto.customerPhone) {
@@ -62,7 +82,7 @@ export class OrdersService {
     await this.validateOrderSchedule(dto.items.map((i) => i.dishId), restaurantId);
 
     // Generar folio único 0001-9999
-    const count = await this.orderRepo.count({ where: { restaurantId } });
+    const count = await this.orderRepo.count({ where: { restaurant: { id: restaurantId } } });
     const orderNumber = String((count % 9999) + 1).padStart(4, '0');
 
     // Generar QR para takeout
@@ -86,6 +106,13 @@ export class OrdersService {
         }),
       );
 
+      // Validar mesa
+      if (dto.tableId) {
+        const table = await em.findOneBy(Table, { id: dto.tableId, restaurant: { id: restaurantId } } as any);
+        if (!table) throw new BadRequestException('Mesa no encontrada o inválida');
+        await em.update(Table, { id: dto.tableId }, { status: 'occupied' as any });
+      }
+
       const subtotal = itemsWithPrice.reduce(
         (acc, i) => acc + i.unitPrice * i.quantity, 0,
       );
@@ -93,9 +120,9 @@ export class OrdersService {
       const total     = subtotal + taxAmount;
 
       const order = em.create(Order, {
-        restaurantId,
-        tableId:       dto.tableId ?? null,
-        waiterId:      waiterId ?? null,
+        restaurant: { id: restaurantId } as any,
+        table:         dto.tableId ? { id: dto.tableId } as any : null,
+        waiter:        waiterId ? { id: waiterId } as any : null,
         orderNumber,
         type:          dto.type,
         status:        OrderStatus.PENDING,
@@ -149,7 +176,7 @@ export class OrdersService {
   // ─────────────────────────────────────────────────────────────────────────
   async scanQr(orderId: number, restaurantId: number): Promise<Order> {
     const order = await this.orderRepo.findOne({
-      where: { id: orderId, restaurantId },
+      where: { id: orderId, restaurant: { id: restaurantId } },
       relations: ['items'],
     });
     if (!order) throw new NotFoundException('Orden no encontrada');
@@ -168,8 +195,13 @@ export class OrdersService {
 
     await this.orderRepo.update(orderId, {
       status:      OrderStatus.DELIVERED,
+      kitchenStatus: KitchenStatus.DELIVERED,
       deliveredAt: new Date(),
     });
+
+    if (order.tableId) {
+      await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+    }
 
     // El trigger MySQL after_order_delivered descontará el inventario FIFO
     // Emitir evento al namespace /restaurant
@@ -189,14 +221,14 @@ export class OrdersService {
     restaurantId: number,
     dto: UpdateOrderStatusDto,
   ): Promise<Order> {
-    const order = await this.orderRepo.findOneBy({ id: orderId, restaurantId });
+    const order = await this.orderRepo.findOneBy({ id: orderId, restaurant: { id: restaurantId } } as any);
     if (!order) throw new NotFoundException('Orden no encontrada');
 
     // Validar transición de estados (sin retrocesos)
     const validTransitions: Record<string, string[]> = {
-      [OrderStatus.PENDING]:   [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-      [OrderStatus.CONFIRMED]: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
-      [OrderStatus.PREPARING]: [OrderStatus.READY, OrderStatus.CANCELLED],
+      [OrderStatus.PENDING]:   [OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
+      [OrderStatus.CONFIRMED]: [OrderStatus.PREPARING, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
+      [OrderStatus.PREPARING]: [OrderStatus.READY, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
       [OrderStatus.READY]:     [OrderStatus.DELIVERED],
       [OrderStatus.DELIVERED]: [],
       [OrderStatus.CANCELLED]: [],
@@ -211,17 +243,50 @@ export class OrdersService {
     const updates: Partial<Order> = { status: dto.status as OrderStatus };
     if (dto.status === OrderStatus.DELIVERED) {
       updates.deliveredAt = new Date();
+      updates.kitchenStatus = KitchenStatus.DELIVERED; // Sincronizar con cocina
+      
       this.ordersGateway.emitOrderDelivered(restaurantId, {
         orderId, deliveredAt: updates.deliveredAt, total: order.total,
       });
+
+      // Notificar a cocina (namespace /kitchen)
+      this.kitchenGateway?.emitOrderFinalized(restaurantId, orderId);
     }
     if (dto.status === OrderStatus.CANCELLED) {
       updates.cancelledAt  = new Date();
       updates.cancelReason = dto.cancelReason ?? null;
+      updates.kitchenStatus = KitchenStatus.DELIVERED; // O un nuevo estado CANCELLED si existe, pero DELIVERED sirve para sacarlo de cocina
+      
+      // Notificar a cocina (namespace /kitchen)
+      this.kitchenGateway?.emitOrderFinalized(restaurantId, orderId);
     }
 
     await this.orderRepo.update(orderId, updates);
+    
+    if (dto.status === OrderStatus.DELIVERED || dto.status === OrderStatus.CANCELLED) {
+      if (order.tableId) {
+         await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+      }
+    }
+    
     return this.orderRepo.findOne({ where: { id: orderId }, relations: ['items'] });
+  }
+
+  private mapOrderRelations(order: Order): any {
+    const o = order as any;
+    if (o.table) {
+      o.tableNumber = o.table.number;
+    }
+    if (o.items) {
+      o.items = o.items.map((item: any) => {
+        if (item.dish) {
+          item.dishName = item.dish.name;
+          item.dishImages = item.dish.images || null;
+        }
+        return item;
+      });
+    }
+    return o;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -232,48 +297,62 @@ export class OrdersService {
     tableId?: number; waiterId?: number;
     dateFrom?: string; dateTo?: string;
   }) {
-    const qb = this.orderRepo.createQueryBuilder('o')
-      .leftJoinAndSelect('o.items', 'items')
-      .leftJoinAndSelect('o.table', 'table')
-      .leftJoinAndSelect('o.waiter', 'waiter')
-      .where('o.restaurantId = :restaurantId', { restaurantId });
+    const qb = this.orderRepo.createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'item')
+      .leftJoinAndSelect('item.dish', 'dish')
+      .leftJoinAndSelect('order.table', 'table')
+      .leftJoinAndSelect('order.waiter', 'waiter')
+      .where('order.restaurant = :restaurantId', { restaurantId });
 
-    if (filters.status)        qb.andWhere('o.status = :status',              { status: filters.status });
-    if (filters.kitchenStatus) qb.andWhere('o.kitchenStatus = :ks',           { ks: filters.kitchenStatus });
-    if (filters.tableId)       qb.andWhere('o.tableId = :tableId',            { tableId: filters.tableId });
-    if (filters.waiterId)      qb.andWhere('o.waiterId = :waiterId',          { waiterId: filters.waiterId });
-    if (filters.dateFrom)      qb.andWhere('o.createdAt >= :dateFrom',        { dateFrom: filters.dateFrom });
-    if (filters.dateTo)        qb.andWhere('o.createdAt <= :dateTo',          { dateTo: filters.dateTo });
+    if (filters.status)        qb.andWhere('order.status = :status',              { status: filters.status });
+    if (filters.kitchenStatus) qb.andWhere('order.kitchen_status = :ks',          { ks: filters.kitchenStatus });
+    if (filters.tableId)       qb.andWhere('order.table_id = :tableId',           { tableId: filters.tableId });
+    if (filters.waiterId)      qb.andWhere('order.waiter_id = :waiterId',         { waiterId: filters.waiterId });
+    if (filters.dateFrom)      qb.andWhere('order.created_at >= :dateFrom',       { dateFrom: filters.dateFrom });
+    if (filters.dateTo)        qb.andWhere('order.created_at <= :dateTo',         { dateTo: filters.dateTo });
 
-    qb.orderBy('o.createdAt', 'DESC');
-    return qb.getMany();
+    qb.orderBy('order.created_at', 'DESC');
+    const orders = await qb.getMany();
+    return orders.map(o => this.mapOrderRelations(o));
   }
 
   async findActive(restaurantId: number) {
     try {
-      return await this.orderRepo.find({
-        where: [
-          { restaurantId, status: OrderStatus.PENDING },
-          { restaurantId, status: OrderStatus.CONFIRMED },
-          { restaurantId, status: OrderStatus.PREPARING },
-          { restaurantId, status: OrderStatus.READY },
-        ],
-        relations: ['items', 'table', 'waiter'],
-        order: { createdAt: 'ASC' },
-      });
-    } catch (err) {
-      this.logger.error(`findActive failed for restaurantId=${restaurantId}`, err?.stack);
+      this.logger.debug(`findActive: restaurantId=${restaurantId}`);
+      const statuses = [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY];
+      
+      const orders = await this.orderRepo.createQueryBuilder('order')
+        .leftJoinAndSelect('order.table', 'table')
+        .leftJoinAndSelect('order.items', 'item')
+        .leftJoinAndSelect('item.dish', 'dish')
+        .leftJoinAndSelect('order.waiter', 'waiter')
+        .where('order.restaurant = :restaurantId', { restaurantId })
+        .andWhere('order.status IN (:...statuses)', { statuses })
+        .orderBy('order.createdAt', 'ASC')
+        .getMany();
+        
+      return orders.map(o => this.mapOrderRelations(o));
+    } catch (err: any) {
+      this.logger.error(
+        `findActive FAILED for restaurantId=${restaurantId}: ${err?.message}`,
+        err?.stack,
+      );
       throw new InternalServerErrorException('Error al obtener pedidos activos');
     }
   }
 
   async findOne(id: number, restaurantId: number) {
-    const order = await this.orderRepo.findOne({
-      where: { id, restaurantId },
-      relations: ['items', 'items.dish', 'table', 'waiter'],
-    });
+    const order = await this.orderRepo.createQueryBuilder('order')
+        .leftJoinAndSelect('order.table', 'table')
+        .leftJoinAndSelect('order.items', 'item')
+        .leftJoinAndSelect('item.dish', 'dish')
+        .leftJoinAndSelect('order.waiter', 'waiter')
+        .where('order.restaurant = :restaurantId', { restaurantId })
+        .andWhere('order.id = :id', { id })
+        .getOne();
+        
     if (!order) throw new NotFoundException('Orden no encontrada');
-    return order;
+    return this.mapOrderRelations(order);
   }
 
   async addItem(orderId: number, restaurantId: number, dto: AddOrderItemDto) {
@@ -281,7 +360,7 @@ export class OrdersService {
     if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED) {
       throw new BadRequestException('No se pueden agregar ítems a una orden finalizada');
     }
-    const dish = await this.dishRepo.findOneBy({ id: dto.dishId, restaurantId });
+    const dish = await this.dishRepo.findOneBy({ id: dto.dishId, restaurant: { id: restaurantId } } as any);
     if (!dish || !dish.isAvailable) throw new NotFoundException('Platillo no disponible');
 
     const item = this.itemRepo.create({
@@ -305,9 +384,15 @@ export class OrdersService {
   }
 
   async cancel(orderId: number, restaurantId: number, cancelReason: string) {
-    return this.updateStatus(orderId, restaurantId, {
+    const order = await this.findOne(orderId, restaurantId);
+    const result = await this.updateStatus(orderId, restaurantId, {
       status: OrderStatus.CANCELLED, cancelReason,
     } as UpdateOrderStatusDto);
+    
+    if (order.tableId) {
+      await this.dataSource.manager.update(Table, { id: order.tableId }, { status: 'available' as any });
+    }
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -317,7 +402,7 @@ export class OrdersService {
   private async validateOrderSchedule(dishIds: number[], restaurantId: number) {
     for (const dishId of dishIds) {
       const dish = await this.dishRepo.findOne({
-        where: { id: dishId, restaurantId },
+        where: { id: dishId, restaurant: { id: restaurantId } } as any,
         relations: ['category', 'category.menu'],
       });
       if (!dish) throw new NotFoundException(`Platillo #${dishId} no encontrado`);
