@@ -120,6 +120,16 @@ export class KitchenGateway implements OnGatewayConnection, OnGatewayDisconnect 
       .emit('order:cancelled', payload);
   }
 
+  /**
+   * Notifica que una orden ha sido finalizada (entregada o cancelada)
+   * para que el board de cocina la retire inmediatamente.
+   */
+  emitOrderFinalized(restaurantId: number, orderId: number) {
+    this.server
+      .to(`kitchen_${restaurantId}`)
+      .emit('order:finalized', { orderId });
+  }
+
   emitOrderReady(restaurantId: number, payload: object) {
     // Emite a /kitchen (chef) Y a /restaurant (waiter)
     this.server

@@ -147,6 +147,13 @@ export class Order {
   @Column({ name: 'cancel_reason', length: 255, nullable: true })
   cancelReason: string | null;
 
+  /**
+   * Indica si la comanda ha sido archivada (u ocultada) por el chef.
+   * Permite limpiar el historial de cocina sin borrar datos financieros.
+   */
+  @Column({ name: 'archived_in_kitchen', default: false })
+  archivedInKitchen: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

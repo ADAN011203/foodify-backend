@@ -12,6 +12,7 @@
 import {
   BadRequestException, ForbiddenException,
   Injectable, InternalServerErrorException, Logger, NotFoundException,
+  Inject, forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -27,6 +28,7 @@ import {
   UpdateOrderItemDto, ScanQrDto,
 }                                                        from './dto/update-order.dto';
 import { OrdersGateway }                                 from './orders.gateway';
+import { KitchenGateway }                                from '../kitchen/kitchen.gateway';
 
 @Injectable()
 export class OrdersService {
@@ -36,7 +38,8 @@ export class OrdersService {
     @InjectRepository(OrderItem)  private itemRepo: Repository<OrderItem>,
     @InjectRepository(Dish)       private dishRepo: Repository<Dish>,
     private dataSource: DataSource,
-    private ordersGateway: OrdersGateway,
+    @Inject(forwardRef(() => OrdersGateway)) private ordersGateway: OrdersGateway,
+    @Inject(forwardRef(() => KitchenGateway)) private kitchenGateway: KitchenGateway,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -192,6 +195,7 @@ export class OrdersService {
 
     await this.orderRepo.update(orderId, {
       status:      OrderStatus.DELIVERED,
+      kitchenStatus: KitchenStatus.DELIVERED,
       deliveredAt: new Date(),
     });
 
@@ -239,13 +243,22 @@ export class OrdersService {
     const updates: Partial<Order> = { status: dto.status as OrderStatus };
     if (dto.status === OrderStatus.DELIVERED) {
       updates.deliveredAt = new Date();
+      updates.kitchenStatus = KitchenStatus.DELIVERED; // Sincronizar con cocina
+      
       this.ordersGateway.emitOrderDelivered(restaurantId, {
         orderId, deliveredAt: updates.deliveredAt, total: order.total,
       });
+
+      // Notificar a cocina (namespace /kitchen)
+      this.kitchenGateway?.emitOrderFinalized(restaurantId, orderId);
     }
     if (dto.status === OrderStatus.CANCELLED) {
       updates.cancelledAt  = new Date();
       updates.cancelReason = dto.cancelReason ?? null;
+      updates.kitchenStatus = KitchenStatus.DELIVERED; // O un nuevo estado CANCELLED si existe, pero DELIVERED sirve para sacarlo de cocina
+      
+      // Notificar a cocina (namespace /kitchen)
+      this.kitchenGateway?.emitOrderFinalized(restaurantId, orderId);
     }
 
     await this.orderRepo.update(orderId, updates);

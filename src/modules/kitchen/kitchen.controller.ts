@@ -29,7 +29,7 @@
  */
 import {
   Body, Controller, Get, Param, ParseIntPipe,
-  Patch, Post, Put, UseGuards,
+  Patch, Post, Put, UseGuards, Query,
 } from '@nestjs/common';
 import { KitchenService }  from './kitchen.service';
 import { JwtAuthGuard }    from '../../shared/guards/jwt-auth.guard';
@@ -44,6 +44,50 @@ import { UpdateKitchenStatusDto, UpdateItemStatusDto, CreateRecipeDto } from './
 @Controller('kitchen')
 export class KitchenController {
   constructor(private readonly kitchenService: KitchenService) {}
+
+  // ════════════════════════════════════════════════════════════════
+  // HISTORIAL Y LIMPIEZA
+  // ════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/kitchen/orders/history
+   * App Android — chef
+   * Lista comandas finalizadas (entregadas/canceladas).
+   * Por defecto muestra las últimas 24 horas.
+   */
+  @Roles(Role.CHEF, Role.RESTAURANT_ADMIN)
+  @Get('orders/history')
+  getHistory(
+    @RestaurantId() restaurantId: number,
+    @Query('date') date?: string,
+  ) {
+    return this.kitchenService.getOrdersHistory(restaurantId, date);
+  }
+
+  /**
+   * PATCH /api/v1/kitchen/orders/archive-all
+   * App Android — chef
+   * Limpia/Oculta por completo la vista de historial actual.
+   */
+  @Roles(Role.CHEF)
+  @Patch('orders/archive-all')
+  archiveAll(@RestaurantId() restaurantId: number) {
+    return this.kitchenService.archiveAllHistory(restaurantId);
+  }
+
+  /**
+   * PATCH /api/v1/kitchen/orders/:id/archive
+   * App Android — chef
+   * Oculta una comanda del historial de cocina.
+   */
+  @Roles(Role.CHEF)
+  @Patch('orders/:id/archive')
+  archiveOrder(
+    @Param('id', ParseIntPipe) id: number,
+    @RestaurantId() restaurantId: number,
+  ) {
+    return this.kitchenService.archiveOrder(id, restaurantId);
+  }
 
   // ════════════════════════════════════════════════════════════════
   // COMANDAS
