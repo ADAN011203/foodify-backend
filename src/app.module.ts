@@ -36,6 +36,7 @@ import { KitchenModule }     from './modules/kitchen/kitchen.module';
 import { ReportsModule }     from './modules/reports/reports.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PublicMenuModule }  from './modules/public-menu/public-menu.module';
+import { UploadModule }      from './modules/upload/upload.module';
 
 // Entidad necesaria para PlanGuard
 import { SaasSubscription } from './modules/saas/entities/saas-subscription.entity';
@@ -110,6 +111,7 @@ import { SaasSubscription } from './modules/saas/entities/saas-subscription.enti
     ReportsModule,
     NotificationsModule,
     PublicMenuModule,    // PWA pública — sin JWT
+    UploadModule,
   ],
 
   providers: [
