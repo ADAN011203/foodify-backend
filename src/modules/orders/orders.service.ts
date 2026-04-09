@@ -222,9 +222,9 @@ export class OrdersService {
 
     // Validar transición de estados (sin retrocesos)
     const validTransitions: Record<string, string[]> = {
-      [OrderStatus.PENDING]:   [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-      [OrderStatus.CONFIRMED]: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
-      [OrderStatus.PREPARING]: [OrderStatus.READY, OrderStatus.CANCELLED],
+      [OrderStatus.PENDING]:   [OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
+      [OrderStatus.CONFIRMED]: [OrderStatus.PREPARING, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
+      [OrderStatus.PREPARING]: [OrderStatus.READY, OrderStatus.CANCELLED, OrderStatus.DELIVERED],
       [OrderStatus.READY]:     [OrderStatus.DELIVERED],
       [OrderStatus.DELIVERED]: [],
       [OrderStatus.CANCELLED]: [],

@@ -25,7 +25,7 @@ export class DishesController {
      return { roles: 'none', user };
   }
 
-  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER)
+  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER, Role.CHEF)
   @Get()
   findAll(
     @RestaurantId() rid: number,

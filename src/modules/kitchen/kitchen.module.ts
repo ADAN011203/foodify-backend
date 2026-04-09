@@ -12,11 +12,15 @@ import { KitchenSession }    from './entities/kitchen-session.entity';
 import { Order }             from '../orders/entities/order.entity';
 import { OrderItem }         from '../orders/entities/order-item.entity';
 import { OrdersGateway }     from '../orders/orders.gateway';
+import { DishesModule }      from '../dishes/dishes.module';
+import { RecipesModule }     from '../recipes/recipes.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, KitchenSession]),
     JwtModule,
+    DishesModule,
+    RecipesModule,
   ],
   controllers: [KitchenController],
   providers:   [KitchenService, KitchenGateway, OrdersGateway],

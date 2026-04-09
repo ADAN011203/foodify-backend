@@ -19,6 +19,8 @@ import { OrderItem, ItemStatus } from '../orders/entities/order-item.entity';
 import { KitchenSession }        from './entities/kitchen-session.entity';
 import { KitchenGateway }        from './kitchen.gateway';
 import { OrdersGateway }         from '../orders/orders.gateway';
+import { DishesService }         from '../dishes/dishes.service';
+import { RecipesService }        from '../recipes/recipes.service';
 import {
   UpdateKitchenStatusDto,
   UpdateItemStatusDto,
@@ -50,29 +52,56 @@ export class KitchenService {
     @InjectRepository(KitchenSession)
     private sessionRepo: Repository<KitchenSession>,
     private kitchenGateway: KitchenGateway,
-    private ordersGateway: OrdersGateway,
+    private ordersGateway:  OrdersGateway,
+    private dishesService:  DishesService,
+    private recipesService: RecipesService,
   ) {}
 
   // ── Comandas activas ────────────────────────────────────────────
-  getActiveOrders(restaurantId: number) {
-    return this.orderRepo.find({
+  async getActiveOrders(restaurantId: number) {
+    const orders = await this.orderRepo.find({
       where: [
-        { restaurantId, kitchenStatus: KitchenStatus.PENDING },
-        { restaurantId, kitchenStatus: KitchenStatus.PREPARING },
-        { restaurantId, kitchenStatus: KitchenStatus.READY },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.PENDING },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.PREPARING },
+        { restaurant: { id: restaurantId }, kitchenStatus: KitchenStatus.READY },
       ],
       relations: ['items', 'items.dish', 'table', 'waiter'],
       order:     { createdAt: 'ASC' },
     });
+    return orders.map(o => this.mapToKitchenOrderDto(o));
   }
 
   async getOrder(id: number, restaurantId: number) {
     const order = await this.orderRepo.findOne({
-      where:     { id, restaurantId },
+      where:     { id, restaurant: { id: restaurantId } },
       relations: ['items', 'items.dish', 'table', 'waiter'],
     });
     if (!order) throw new NotFoundException('Comanda no encontrada');
-    return order;
+    return this.mapToKitchenOrderDto(order);
+  }
+
+  private mapToKitchenOrderDto(order: Order) {
+    return {
+      id:            order.id,
+      orderNumber:   order.orderNumber,
+      tableId:       order.tableId,
+      tableNumber:   order.table?.number ?? null,
+      type:          order.type,
+      kitchenStatus: order.kitchenStatus,
+      status:        order.status,
+      waiterName:    order.waiter?.fullName ?? 'N/A',
+      createdAt:     order.createdAt,
+      items: (order.items || []).map(i => ({
+        id:           i.id,
+        dishId:       i.dishId,
+        dishName:     i.dish?.name ?? 'Desconocido',
+        quantity:     i.quantity,
+        specialNotes: i.specialNotes,
+        status:       i.status,
+        startedAt:    i.startedAt,
+        readyAt:      i.readyAt,
+      })),
+    };
   }
 
   // ── Cambiar estado de comanda completa ──────────────────────────
@@ -81,7 +110,11 @@ export class KitchenService {
     restaurantId: number,
     dto: UpdateKitchenStatusDto,
   ) {
-    const order = await this.getOrder(id, restaurantId);
+    const order = await this.orderRepo.findOne({
+      where:     { id, restaurant: { id: restaurantId } },
+      relations: ['items', 'items.dish', 'table', 'waiter'],
+    });
+    if (!order) throw new NotFoundException('Comanda no encontrada');
 
     const currentIdx = KITCHEN_STATUS_ORDER.indexOf(order.kitchenStatus);
     const nextIdx    = KITCHEN_STATUS_ORDER.indexOf(dto.status as unknown as KitchenStatus);
@@ -180,12 +213,14 @@ export class KitchenService {
 
   // ── Platillos y recetas ─────────────────────────────────────────
   async getDishes(restaurantId: number) {
-    // Delega al módulo de dishes — aquí retornamos con receta resumida
-    return { message: 'Ver DishesService.findAll con recetas resumidas', restaurantId };
+    // Retornamos todos los platillos activos del restaurante
+    return this.dishesService.findAll(restaurantId, {}, 'chef');
   }
 
   async getRecipe(dishId: number, restaurantId: number) {
-    return { message: 'Ver RecipesService.findByDish', dishId, restaurantId };
+    // Validar primero que el platillo pertenece al restaurante (seguridad)
+    await this.dishesService.findOne(dishId, restaurantId);
+    return this.recipesService.findByDish(dishId);
   }
 
   async createRecipe(restaurantId: number, dto: CreateRecipeDto) {
@@ -199,13 +234,13 @@ export class KitchenService {
   // ── Stats del turno ─────────────────────────────────────────────
   async getStats(restaurantId: number, chefId: number) {
     const session = await this.sessionRepo.findOne({
-      where:  { chef: { id: chefId }, restaurantId, endedAt: null },
+      where:  { chef: { id: chefId }, restaurant: { id: restaurantId }, endedAt: null },
       order:  { startedAt: 'DESC' },
     });
 
     const completedOrders = await this.orderRepo.count({
       where: {
-        restaurantId,
+        restaurant: { id: restaurantId },
         kitchenStatus: KitchenStatus.DELIVERED,
       },
     });

@@ -158,7 +158,7 @@ export class OrdersController {
    * [App Android — Plan Premium] waiter cambia a delivered para dine_in:
    *   body: { status: 'delivered' }
    */
-  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER)
+  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER)
   @Patch(':id/status')
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
@@ -262,7 +262,7 @@ export class OrdersController {
    * PATCH /api/v1/orders/:id/cancel
    * PWA + App Android: cancelar pedido con motivo
    */
-  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER)
+  @Roles(Role.RESTAURANT_ADMIN, Role.WAITER, Role.CASHIER)
   @Patch(':id/cancel')
   cancel(
     @Param('id', ParseIntPipe) id: number,
